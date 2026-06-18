@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: nexbell-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
+  edge-service:
+    build: .
+    container_name: nexbell-edge-service
+    ports:
+      - "3100:3100"
+    environment:
+      - MQTT_BROKER_URL=mqtt://mosquitto:1883
+      - BACKEND_BASE_URL=http://host.docker.internal:8080
+      - EDGE_SERVICE_PORT=3100
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
