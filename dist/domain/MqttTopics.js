@@ -18,4 +18,8 @@ exports.MqttTopics = {
     AUDIO_CHUNK: 'nexbell/audio/chunk',
     /** ESP32S3 publishes when recording window is complete */
     AUDIO_DONE: 'nexbell/audio/done',
+    /** ESP32S3 publishes a JPEG frame as Base64 JSON after a capture trigger */
+    CAMERA_FRAME: 'nexbell/telemetry/camera',
+    /** Edge service publishes a visitId to trigger OV2640 photo capture */
+    CAMERA_TRIGGER: 'nexbell/commands/capture',
 };

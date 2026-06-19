@@ -41,6 +41,17 @@ class NexBellHttpClient {
         console.log(`[HTTP] Audio evidence attached for visitRequestId=${visitRequestId}`);
     }
     /**
+     * POST /api/intercom/visit-requests/{id}/evidence
+     * Attaches the photo URL captured by the OV2640 camera.
+     */
+    async attachPhotoEvidence(visitRequestId, photoUrl) {
+        await this.http.post(`/api/intercom/visit-requests/${visitRequestId}/evidence`, {
+            photoUrl,
+            audioUrl: null,
+        });
+        console.log(`[HTTP] Photo evidence attached for visitRequestId=${visitRequestId}`);
+    }
+    /**
      * POST /api/intercom/visit-requests — create a new visit request triggered
      * by a doorbell press. Returns the created request ID.
      */
