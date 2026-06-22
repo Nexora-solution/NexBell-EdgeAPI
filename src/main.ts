@@ -11,6 +11,8 @@ import { DoorAlarmEventHandler }     from './application/handlers/DoorAlarmEvent
 import { AudioOrchestrationService } from './application/services/AudioOrchestrationService';
 import { CameraEvidenceService }     from './application/services/CameraEvidenceService';
 import { EdgeCommandController }     from './application/controllers/EdgeCommandController';
+import { BellEventHandler }          from './application/handlers/BellEventHandler';
+import { VibrationAlarmEventHandler } from './application/handlers/VibrationAlarmEventHandler';
 import { MqttTopics }                from './domain/MqttTopics';
 import os                            from 'os';
 
@@ -74,6 +76,8 @@ async function main() {
   const doorHandler     = new DoorAlarmEventHandler(httpClient);
   const audioService    = new AudioOrchestrationService(httpClient, mqttClient);
   const cameraService   = new CameraEvidenceService(httpClient, mqttClient);
+  const bellHandler     = new BellEventHandler(httpClient, cameraService);
+  const vibrationHandler = new VibrationAlarmEventHandler(httpClient);
 
   // ── Connect MQTT and wire subscriptions ───────────────────────────
   await mqttClient.connect();
@@ -98,8 +102,14 @@ async function main() {
     audioService.onDone(payload);
   });
 
-  mqttClient.subscribe(MqttTopics.CAMERA_FRAME, (payload) => {
-    cameraService.onFrame(payload);
+  // Removed camera frame subscription because camera publishes direct raw binary now
+
+  mqttClient.subscribe(MqttTopics.BELL_BUTTON, (payload) => {
+    bellHandler.handle(payload);
+  });
+
+  mqttClient.subscribe(MqttTopics.VIBRATION_ALARM, (payload) => {
+    vibrationHandler.handle(payload);
   });
 
   console.log('[EdgeService] Ready. Listening to MQTT topics.');

@@ -21,6 +21,12 @@ export const MqttTopics = {
   /** ESP32S3 publishes when recording window is complete */
   AUDIO_DONE:      'nexbell/audio/done',
 
+  /** Timbre presionado en la placa */
+  BELL_BUTTON:     'nexbell/alarms/bell',
+
+  /** Sensor de vibración detecta golpes/manipulación */
+  VIBRATION_ALARM: 'nexbell/alarms/vibration',
+
   /** ESP32S3 publishes a JPEG frame as Base64 JSON after a capture trigger */
   CAMERA_FRAME:    'nexbell/telemetry/camera',
 

@@ -28,6 +28,30 @@ export class EdgeCommandController {
         console.log('[EdgeCommandController] UNLOCK published to MQTT.');
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'UNLOCK_DISPATCHED' }));
+      } else if (req.method === 'POST' && req.url === '/api/commands/capture') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            if (data.action === 'START_VIDEO') {
+              this.mqtt.publish(MqttTopics.CAMERA_TRIGGER, "START_VIDEO");
+              console.log(`[EdgeCommandController] START_VIDEO published.`);
+            } else if (data.action === 'STOP_VIDEO') {
+              this.mqtt.publish(MqttTopics.CAMERA_TRIGGER, "STOP_VIDEO");
+              console.log(`[EdgeCommandController] STOP_VIDEO published.`);
+            } else {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Invalid action, expected START_VIDEO or STOP_VIDEO' }));
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ status: 'CAPTURE_DISPATCHED' }));
+          } catch (e) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+          }
+        });
       } else {
         res.writeHead(404);
         res.end();

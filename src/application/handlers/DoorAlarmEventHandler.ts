@@ -16,7 +16,7 @@ export class DoorAlarmEventHandler {
 
     if (state === 'OPEN') {
       try {
-        await this.http.reportTampering();
+        await this.http.reportTampering('MC38_MAGNETIC');
       } catch (err) {
         console.error('[DoorAlarmHandler] Failed to report tampering to backend:', err);
       }

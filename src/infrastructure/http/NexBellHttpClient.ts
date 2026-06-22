@@ -23,10 +23,10 @@ export class NexBellHttpClient {
     console.log('[HTTP] Presence event reported to backend.');
   }
 
-  /** POST /api/security/alarms/tampering — report MC38 door alarm event */
-  async reportTampering(): Promise<void> {
-    await this.http.post('/api/security/alarms/tampering');
-    console.log('[HTTP] Tampering alarm reported to backend.');
+  /** POST /api/security/alarms/tampering — report tampering alarm event */
+  async reportTampering(sensorType: 'MC38_MAGNETIC' | 'SW420_VIBRATION'): Promise<void> {
+    await this.http.post('/api/security/alarms/tampering', { sensorType });
+    console.log(`[HTTP] Tampering alarm reported to backend for sensor: ${sensorType}.`);
   }
 
   /**
@@ -40,6 +40,8 @@ export class NexBellHttpClient {
     });
     console.log(`[HTTP] Audio evidence attached for visitRequestId=${visitRequestId}`);
   }
+
+
 
   /**
    * POST /api/intercom/visit-requests/{id}/evidence
