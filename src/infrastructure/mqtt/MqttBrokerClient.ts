@@ -21,7 +21,12 @@ export class MqttBrokerClient {
       const clientId = process.env.MQTT_CLIENT_ID ?? `nexbell-edge-${Date.now()}`;
       console.log(`[MQTT] Connecting to ${this.brokerUrl} as ${clientId} ...`);
 
-      this.client = mqtt.connect(this.brokerUrl, { clientId, clean: true });
+      this.client = mqtt.connect(this.brokerUrl, {
+        clientId,
+        clean: true,
+        username: process.env.MQTT_USERNAME,
+        password: process.env.MQTT_PASSWORD,
+      });
 
       this.client.on('connect', () => {
         console.log('[MQTT] Connected to broker.');

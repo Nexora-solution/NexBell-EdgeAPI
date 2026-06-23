@@ -4,6 +4,7 @@
  * Wires the DDD layers together:
  *   Infrastructure → Application → Domain
  */
+import 'dotenv/config';
 import { MqttBrokerClient }         from './infrastructure/mqtt/MqttBrokerClient';
 import { NexBellHttpClient }         from './infrastructure/http/NexBellHttpClient';
 import { PresenceEventHandler }      from './application/handlers/PresenceEventHandler';
