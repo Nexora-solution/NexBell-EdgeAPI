@@ -13,6 +13,7 @@ import { AudioOrchestrationService } from './application/services/AudioOrchestra
 import { CameraEvidenceService }     from './application/services/CameraEvidenceService';
 import { VideoStreamService }        from './application/services/VideoStreamService';
 import { EdgeCommandController }     from './application/controllers/EdgeCommandController';
+import { LiveAudioGateway }          from './application/controllers/LiveAudioGateway';
 import { BellEventHandler }          from './application/handlers/BellEventHandler';
 import { VibrationAlarmEventHandler } from './application/handlers/VibrationAlarmEventHandler';
 import { MqttTopics }                from './domain/MqttTopics';
@@ -87,7 +88,15 @@ async function main() {
 
   // ── Command Controller HTTP Server ────────────────────────────────
   const commandController = new EdgeCommandController(mqttClient);
-  commandController.startHttpServer();
+  const httpServer = commandController.startHttpServer();
+
+  // ── Live Audio Gateway (WebSocket <-> MQTT bridge) ────────────────
+  // Note: AudioOrchestrationService (above) is the older evidence-recording
+  // pipeline (Base64/JSON, fixed 5s window). The firmware no longer speaks
+  // that protocol — audio/chunk now carries raw PCM binary — so this
+  // service is currently unwired. The live conversation path below is
+  // intentionally separate and replaces it for real-time use.
+  new LiveAudioGateway(mqttClient, httpServer);
 
   mqttClient.subscribe(MqttTopics.PRESENCE, (payload) => {
     presenceHandler.handle(payload);
@@ -95,14 +104,6 @@ async function main() {
 
   mqttClient.subscribe(MqttTopics.DOOR_ALARM, (payload) => {
     doorHandler.handle(payload);
-  });
-
-  mqttClient.subscribe(MqttTopics.AUDIO_CHUNK, (payload) => {
-    audioService.onChunk(payload);
-  });
-
-  mqttClient.subscribe(MqttTopics.AUDIO_DONE, (payload) => {
-    audioService.onDone(payload);
   });
 
   mqttClient.subscribeBinary(MqttTopics.VIDEO_STREAM, (frame) => {

@@ -89,4 +89,11 @@ export class MqttBrokerClient {
       else console.log(`[MQTT] Published to ${topic}: ${payload}`);
     });
   }
+
+  /** Like publish(), but sends raw binary bytes untouched (for audio/video payloads). */
+  publishBytes(topic: string, payload: Buffer): void {
+    this.client.publish(topic, payload, (err) => {
+      if (err) console.error(`[MQTT] Binary publish error on ${topic}:`, err.message);
+    });
+  }
 }

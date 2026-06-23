@@ -21,7 +21,8 @@ export class EdgeCommandController {
 
   constructor(private readonly mqtt: MqttBrokerClient) {}
 
-  startHttpServer(): void {
+  /** Starts the HTTP server and returns it, so other transports (e.g. WebSocket) can attach to the same port. */
+  startHttpServer(): http.Server {
     const server = http.createServer((req, res) => {
       if (req.method === 'POST' && req.url === '/api/commands/unlock') {
         this.mqtt.publish(MqttTopics.UNLOCK_CMD, 'UNLOCK');
@@ -61,5 +62,7 @@ export class EdgeCommandController {
     server.listen(this.PORT, () => {
       console.log(`[EdgeCommandController] HTTP server listening on port ${this.PORT}`);
     });
+
+    return server;
   }
 }
