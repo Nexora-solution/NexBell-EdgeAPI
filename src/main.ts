@@ -11,6 +11,7 @@ import { PresenceEventHandler }      from './application/handlers/PresenceEventH
 import { DoorAlarmEventHandler }     from './application/handlers/DoorAlarmEventHandler';
 import { AudioOrchestrationService } from './application/services/AudioOrchestrationService';
 import { CameraEvidenceService }     from './application/services/CameraEvidenceService';
+import { VideoStreamService }        from './application/services/VideoStreamService';
 import { EdgeCommandController }     from './application/controllers/EdgeCommandController';
 import { BellEventHandler }          from './application/handlers/BellEventHandler';
 import { VibrationAlarmEventHandler } from './application/handlers/VibrationAlarmEventHandler';
@@ -73,11 +74,12 @@ async function main() {
   const mqttClient  = new MqttBrokerClient(MQTT_BROKER_URL);
 
   // ── Application handlers ──────────────────────────────────────────
-  const presenceHandler = new PresenceEventHandler(httpClient);
-  const doorHandler     = new DoorAlarmEventHandler(httpClient);
-  const audioService    = new AudioOrchestrationService(httpClient, mqttClient);
   const cameraService   = new CameraEvidenceService(httpClient, mqttClient);
-  const bellHandler     = new BellEventHandler(httpClient, cameraService);
+  const videoStreamService = new VideoStreamService();
+  const presenceHandler  = new PresenceEventHandler(httpClient, cameraService);
+  const doorHandler      = new DoorAlarmEventHandler(httpClient);
+  const audioService     = new AudioOrchestrationService(httpClient, mqttClient);
+  const bellHandler      = new BellEventHandler(httpClient, cameraService);
   const vibrationHandler = new VibrationAlarmEventHandler(httpClient);
 
   // ── Connect MQTT and wire subscriptions ───────────────────────────
@@ -103,7 +105,9 @@ async function main() {
     audioService.onDone(payload);
   });
 
-  // Removed camera frame subscription because camera publishes direct raw binary now
+  mqttClient.subscribeBinary(MqttTopics.VIDEO_STREAM, (frame) => {
+    videoStreamService.onFrame(frame);
+  });
 
   mqttClient.subscribe(MqttTopics.BELL_BUTTON, (payload) => {
     bellHandler.handle(payload);
