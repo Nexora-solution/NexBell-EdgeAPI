@@ -33,6 +33,9 @@ export const MqttTopics = {
   /** ESP32S3 publishes a JPEG frame as Base64 JSON after a capture trigger */
   CAMERA_FRAME:    'nexbell/telemetry/camera',
 
+  /** ESP32S3 publishes face-recognition events (JSON): face_detected/recognized/enrolled/etc. */
+  CAMERA_FACE:     'nexbell/telemetry/face',
+
   /** ESP32S3 publishes raw binary JPEG frames continuously while streaming is active */
   VIDEO_STREAM:    'nexbell/telemetry/video',
 
