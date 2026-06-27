@@ -8,6 +8,13 @@ import { MqttTopics } from '../../domain/MqttTopics';
 const EDGE_AUDIO_PORT  = Number(process.env.EDGE_AUDIO_PORT ?? 3101);  // here we receive the ESP32 mic
 const ESP32_AUDIO_PORT = Number(process.env.ESP32_AUDIO_PORT ?? 3102); // there the ESP32 receives the portero
 
+// Echo suppression: while the portero is talking, the ESP32 speaker plays that
+// voice and the ESP32 mic picks it back up — which would loop straight back to
+// the portero as an echo. So for a short window after each portero packet we
+// stop relaying the ESP32 mic. Simple half-duplex gating (walkie-talkie style)
+// that kills the loop without needing acoustic echo cancellation on the MCU.
+const ECHO_GUARD_MS = 250;
+
 /**
  * Application Controller: Live Audio Gateway
  *
@@ -34,6 +41,9 @@ export class LiveAudioGateway {
   // Learned from the ESP32's incoming mic packets — where to send portero audio.
   private esp32Address: string | null = null;
 
+  // Timestamp of the last portero audio packet — used to gate echo (see ECHO_GUARD_MS).
+  private lastPorteroAudioAt = 0;
+
   // Diagnostics: rate-limited counters so we can see audio flowing each way.
   private visitorChunksInLastSecond = 0;
   private porteroChunksInLastSecond = 0;
@@ -55,6 +65,11 @@ export class LiveAudioGateway {
       this._logDiagnosticsIfDue();
 
       if (this.clients.size === 0) return; // nobody listening — not an error
+
+      // Echo gate: if the portero just spoke, this mic audio is most likely the
+      // ESP32 speaker echoing their voice back — drop it instead of looping it.
+      if (Date.now() - this.lastPorteroAudioAt < ECHO_GUARD_MS) return;
+
       for (const client of this.clients) {
         if (client.readyState === WebSocket.OPEN) client.send(frame);
       }
@@ -81,6 +96,7 @@ export class LiveAudioGateway {
         if (this.esp32Address) {
           this.udp.send(data, ESP32_AUDIO_PORT, this.esp32Address);
         }
+        this.lastPorteroAudioAt = Date.now(); // arm the echo gate
         this.porteroChunksInLastSecond++;
         this._logDiagnosticsIfDue();
       });
