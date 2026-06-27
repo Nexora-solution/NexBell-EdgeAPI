@@ -39,17 +39,15 @@ export class EdgeCommandController {
         req.on('end', () => {
           try {
             const data = JSON.parse(body);
-            if (data.action === 'START_VIDEO') {
-              this.mqtt.publish(MqttTopics.CAMERA_TRIGGER, "START_VIDEO");
-              console.log(`[EdgeCommandController] START_VIDEO published.`);
-            } else if (data.action === 'STOP_VIDEO') {
-              this.mqtt.publish(MqttTopics.CAMERA_TRIGGER, "STOP_VIDEO");
-              console.log(`[EdgeCommandController] STOP_VIDEO published.`);
-            } else {
+            // Camera + face-AI commands the ESP32 understands on the capture topic.
+            const allowed = ['START_VIDEO', 'STOP_VIDEO', 'ENROLL_FACE', 'DELETE_FACES', 'FACE_ON', 'FACE_OFF'];
+            if (!allowed.includes(data.action)) {
               res.writeHead(400, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ error: 'Invalid action, expected START_VIDEO or STOP_VIDEO' }));
+              res.end(JSON.stringify({ error: `Invalid action. Expected one of: ${allowed.join(', ')}` }));
               return;
             }
+            this.mqtt.publish(MqttTopics.CAMERA_TRIGGER, data.action);
+            console.log(`[EdgeCommandController] ${data.action} published.`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ status: 'CAPTURE_DISPATCHED' }));
           } catch (e) {

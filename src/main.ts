@@ -121,6 +121,17 @@ async function main() {
     vibrationHandler.handle(payload);
   });
 
+  // Face-recognition events from the ESP32 → forward to the backend.
+  mqttClient.subscribe(MqttTopics.CAMERA_FACE, (payload) => {
+    try {
+      const event = JSON.parse(payload);
+      httpClient.reportFaceEvent(event).catch((err) =>
+        console.error('[FaceEvent] Failed to forward to backend:', err.message));
+    } catch {
+      console.warn('[FaceEvent] Ignoring non-JSON face payload:', payload);
+    }
+  });
+
   console.log('[EdgeService] Ready. Listening to MQTT topics.');
 }
 
