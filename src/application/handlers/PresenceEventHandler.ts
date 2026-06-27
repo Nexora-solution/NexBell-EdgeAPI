@@ -4,6 +4,9 @@ import type { CameraEvidenceService } from '../services/CameraEvidenceService';
 /** Safety net: stop the camera stream if no presence update arrives within this window. */
 const PRESENCE_TIMEOUT_MS = 20_000;
 
+/** Grace period after a "clear" before actually stopping — absorbs brief presence flicker. */
+const CLEAR_GRACE_MS = 1_000;
+
 /**
  * Application Handler: Presence Event (HC-SR04)
  *
@@ -16,6 +19,7 @@ const PRESENCE_TIMEOUT_MS = 20_000;
 export class PresenceEventHandler {
   private streaming = false;
   private clearTimeout: NodeJS.Timeout | null = null;
+  private graceTimeout: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly http: NexBellHttpClient,
@@ -26,6 +30,9 @@ export class PresenceEventHandler {
     const detected = payload.trim() === '1';
 
     if (detected) {
+      // A fresh "presence" cancels any pending grace stop and refreshes the
+      // safety timeout — the visitor is (still) there.
+      this._cancelGrace();
       this._refreshTimeout();
 
       if (!this.streaming) {
@@ -42,8 +49,15 @@ export class PresenceEventHandler {
       return;
     }
 
-    // '0' = clear — stop the stream immediately, no need to wait for the timeout.
-    this._stopStream('presence cleared');
+    // '0' = clear — don't kill the stream instantly. Wait a short grace period;
+    // if presence comes back within it (brief sensor flicker), we keep streaming
+    // and the camera never blinks off. Only a sustained clear actually stops it.
+    if (this.streaming && !this.graceTimeout) {
+      this.graceTimeout = setTimeout(() => {
+        this.graceTimeout = null;
+        this._stopStream('presence cleared (after grace)');
+      }, CLEAR_GRACE_MS);
+    }
   }
 
   private _refreshTimeout(): void {
@@ -53,7 +67,15 @@ export class PresenceEventHandler {
     }, PRESENCE_TIMEOUT_MS);
   }
 
+  private _cancelGrace(): void {
+    if (this.graceTimeout) {
+      clearTimeout(this.graceTimeout);
+      this.graceTimeout = null;
+    }
+  }
+
   private _stopStream(reason: string): void {
+    this._cancelGrace();
     if (this.clearTimeout) {
       clearTimeout(this.clearTimeout);
       this.clearTimeout = null;

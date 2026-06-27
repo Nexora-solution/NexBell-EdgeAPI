@@ -1,40 +1,87 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
+import dgram from 'dgram';
 import type { MqttBrokerClient } from '../../infrastructure/mqtt/MqttBrokerClient';
 import { MqttTopics } from '../../domain/MqttTopics';
+
+// UDP ports for the live-voice media plane (must match the ESP32 firmware Config.h).
+const EDGE_AUDIO_PORT  = Number(process.env.EDGE_AUDIO_PORT ?? 3101);  // here we receive the ESP32 mic
+const ESP32_AUDIO_PORT = Number(process.env.ESP32_AUDIO_PORT ?? 3102); // there the ESP32 receives the portero
+
+// Echo suppression: while the portero is talking, the ESP32 speaker plays that
+// voice and the ESP32 mic picks it back up — which would loop straight back to
+// the portero as an echo. So for a short window after each portero packet we
+// stop relaying the ESP32 mic. Simple half-duplex gating (walkie-talkie style)
+// that kills the loop without needing acoustic echo cancellation on the MCU.
+const ECHO_GUARD_MS = 250;
 
 /**
  * Application Controller: Live Audio Gateway
  *
- * Bridges a live, bidirectional audio conversation between the web
- * frontend (portero) and the ESP32S3 (visitor) over WebSocket <-> MQTT.
- * This is intentionally separate from the evidence-recording pipeline
- * (AudioOrchestrationService) — audio here flows as raw 16kHz/16-bit PCM
- * binary frames in both directions, with no Base64/JSON envelope and no
- * fixed duration, for as long as at least one web client stays connected.
+ * Bridges a live, bidirectional audio conversation between the web frontend
+ * (portero) and the ESP32S3 (visitor).
  *
- * Visitor mic  → ESP32 (nexbell/audio/chunk)    → Edge → WebSocket → Web
- * Portero mic  → Web (WebSocket binary frame)   → Edge → nexbell/audio/playback → ESP32 speaker
+ *   Visitor mic → ESP32 ──UDP──► Edge ──WebSocket──► Web
+ *   Portero mic → Web ──WebSocket──► Edge ──UDP──► ESP32 speaker
  *
- * The ESP32's mic is only told to start/stop streaming based on whether
- * any web client is connected, so it isn't transmitting audio nobody is
- * listening to.
+ * The audio MEDIA travels over a direct UDP socket between the ESP32 and this
+ * service — it no longer goes through the MQTT broker. That removes the broker
+ * hop and PubSubClient overhead (much lower latency) and frees MQTT/WiFi for
+ * the video stream. Only the CONTROL signal (start/stop the ESP32 mic) still
+ * uses MQTT, since it's a rare, reliability-oriented message.
+ *
+ * Raw 16 kHz / 16-bit PCM frames flow in both directions, no Base64/JSON.
  */
 export class LiveAudioGateway {
   private readonly wss: WebSocketServer;
   private readonly clients = new Set<WebSocket>();
+  private readonly udp = dgram.createSocket('udp4');
   private micActive = false;
 
-  // Diagnostics: rate-limited counters so we can see in the logs whether
-  // audio is actually flowing in each direction, without flooding the console.
+  // Learned from the ESP32's incoming mic packets — where to send portero audio.
+  private esp32Address: string | null = null;
+
+  // Timestamp of the last portero audio packet — used to gate echo (see ECHO_GUARD_MS).
+  private lastPorteroAudioAt = 0;
+
+  // Diagnostics: rate-limited counters so we can see audio flowing each way.
   private visitorChunksInLastSecond = 0;
   private porteroChunksInLastSecond = 0;
   private lastDiagnosticLog = 0;
 
   constructor(private readonly mqtt: MqttBrokerClient, httpServer: Server) {
     this.wss = new WebSocketServer({ server: httpServer, path: '/ws/audio' });
+    this._wireUdp();
     this._wireWebSocketServer();
-    this._wireMqttIncoming();
+  }
+
+  /** UDP socket: receives the ESP32 mic and learns where to send portero audio. */
+  private _wireUdp(): void {
+    this.udp.on('message', (frame: Buffer, rinfo) => {
+      // Remember the ESP32's address so we can send the portero's voice back.
+      this.esp32Address = rinfo.address;
+
+      this.visitorChunksInLastSecond++;
+      this._logDiagnosticsIfDue();
+
+      if (this.clients.size === 0) return; // nobody listening — not an error
+
+      // Echo gate: if the portero just spoke, this mic audio is most likely the
+      // ESP32 speaker echoing their voice back — drop it instead of looping it.
+      if (Date.now() - this.lastPorteroAudioAt < ECHO_GUARD_MS) return;
+
+      for (const client of this.clients) {
+        if (client.readyState === WebSocket.OPEN) client.send(frame);
+      }
+    });
+
+    this.udp.on('error', (err: Error) => {
+      console.error('[LiveAudio] UDP socket error:', err.message);
+    });
+
+    this.udp.bind(EDGE_AUDIO_PORT, () => {
+      console.log(`[LiveAudio] UDP audio socket listening on ${EDGE_AUDIO_PORT} (ESP32 mic in).`);
+    });
   }
 
   private _wireWebSocketServer(): void {
@@ -44,8 +91,15 @@ export class LiveAudioGateway {
       this._ensureMicStarted();
 
       ws.on('message', (data: Buffer, isBinary: boolean) => {
-        if (!isBinary) return; // ignore any stray text frames (e.g. control pings from the browser)
-        this.mqtt.publishBytes(MqttTopics.AUDIO_PLAYBACK, data);
+        if (!isBinary) return; // ignore stray text frames (e.g. control pings)
+        // Portero voice → ESP32 speaker over UDP (only once we know its address).
+        if (this.esp32Address) {
+          this.udp.send(data, ESP32_AUDIO_PORT, this.esp32Address);
+        }
+        // Arm the echo gate ONLY when the portero is actually talking (audible
+        // level). The browser streams frames continuously — including silent
+        // ones — so arming on every frame would block the IoT mic forever.
+        if (this._hasVoice(data)) this.lastPorteroAudioAt = Date.now();
         this.porteroChunksInLastSecond++;
         this._logDiagnosticsIfDue();
       });
@@ -62,27 +116,22 @@ export class LiveAudioGateway {
     });
   }
 
-  /** Relays each raw audio chunk arriving from the ESP32 mic to every connected web client. */
-  private _wireMqttIncoming(): void {
-    this.mqtt.subscribeBinary(MqttTopics.AUDIO_CHUNK, (frame: Buffer) => {
-      this.visitorChunksInLastSecond++;
-      this._logDiagnosticsIfDue();
-
-      if (this.clients.size === 0) return; // nobody to send to — this alone isn't an error
-      for (const client of this.clients) {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(frame);
-        }
-      }
-    });
+  /** True if the PCM16 frame carries audible voice (peak above the silence floor). */
+  private _hasVoice(buf: Buffer): boolean {
+    const VOICE_PEAK = 1500; // ~4.5% of Int16 full scale — above the mic's noise floor
+    for (let i = 0; i + 1 < buf.length; i += 2) {
+      if (Math.abs(buf.readInt16LE(i)) >= VOICE_PEAK) return true;
+    }
+    return false;
   }
 
   private _logDiagnosticsIfDue(): void {
     const now = Date.now();
     if (now - this.lastDiagnosticLog < 1000) return;
     console.log(
-      `[LiveAudio] last 1s — from ESP32 mic: ${this.visitorChunksInLastSecond} chunk(s), ` +
-      `from portero mic: ${this.porteroChunksInLastSecond} chunk(s), connected web clients: ${this.clients.size}`
+      `[LiveAudio] last 1s — from ESP32 mic: ${this.visitorChunksInLastSecond} pkt(s), ` +
+      `from portero mic: ${this.porteroChunksInLastSecond} pkt(s), web clients: ${this.clients.size}, ` +
+      `esp32: ${this.esp32Address ?? 'unknown'}`
     );
     this.visitorChunksInLastSecond = 0;
     this.porteroChunksInLastSecond = 0;
@@ -92,7 +141,7 @@ export class LiveAudioGateway {
   private _ensureMicStarted(): void {
     if (this.micActive) return;
     this.micActive = true;
-    this.mqtt.publish(MqttTopics.AUDIO_START, 'START');
+    this.mqtt.publish(MqttTopics.AUDIO_START, 'START'); // control stays on MQTT
     console.log('[LiveAudio] First client connected — starting ESP32 mic stream.');
   }
 
