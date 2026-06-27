@@ -96,7 +96,10 @@ export class LiveAudioGateway {
         if (this.esp32Address) {
           this.udp.send(data, ESP32_AUDIO_PORT, this.esp32Address);
         }
-        this.lastPorteroAudioAt = Date.now(); // arm the echo gate
+        // Arm the echo gate ONLY when the portero is actually talking (audible
+        // level). The browser streams frames continuously — including silent
+        // ones — so arming on every frame would block the IoT mic forever.
+        if (this._hasVoice(data)) this.lastPorteroAudioAt = Date.now();
         this.porteroChunksInLastSecond++;
         this._logDiagnosticsIfDue();
       });
@@ -111,6 +114,15 @@ export class LiveAudioGateway {
         console.error('[LiveAudio] WebSocket client error:', err.message);
       });
     });
+  }
+
+  /** True if the PCM16 frame carries audible voice (peak above the silence floor). */
+  private _hasVoice(buf: Buffer): boolean {
+    const VOICE_PEAK = 1500; // ~4.5% of Int16 full scale — above the mic's noise floor
+    for (let i = 0; i + 1 < buf.length; i += 2) {
+      if (Math.abs(buf.readInt16LE(i)) >= VOICE_PEAK) return true;
+    }
+    return false;
   }
 
   private _logDiagnosticsIfDue(): void {

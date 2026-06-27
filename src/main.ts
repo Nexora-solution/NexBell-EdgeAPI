@@ -12,6 +12,7 @@ import { DoorAlarmEventHandler }     from './application/handlers/DoorAlarmEvent
 import { AudioOrchestrationService } from './application/services/AudioOrchestrationService';
 import { CameraEvidenceService }     from './application/services/CameraEvidenceService';
 import { VideoStreamService }        from './application/services/VideoStreamService';
+import { VideoTcpReceiver }          from './infrastructure/tcp/VideoTcpReceiver';
 import { EdgeCommandController }     from './application/controllers/EdgeCommandController';
 import { LiveAudioGateway }          from './application/controllers/LiveAudioGateway';
 import { BellEventHandler }          from './application/handlers/BellEventHandler';
@@ -86,9 +87,13 @@ async function main() {
   // ── Connect MQTT and wire subscriptions ───────────────────────────
   await mqttClient.connect();
 
-  // ── Command Controller HTTP Server ────────────────────────────────
-  const commandController = new EdgeCommandController(mqttClient);
+  // ── Command Controller HTTP Server (also serves the MJPEG video) ──
+  const commandController = new EdgeCommandController(mqttClient, videoStreamService);
   const httpServer = commandController.startHttpServer();
+
+  // ── Video TCP Receiver: ESP32 sends JPEG frames straight here (no MQTT) ──
+  const videoTcpPort = Number(process.env.EDGE_VIDEO_PORT ?? 3103);
+  new VideoTcpReceiver(videoStreamService, videoTcpPort).start();
 
   // ── Live Audio Gateway (WebSocket <-> MQTT bridge) ────────────────
   // Note: AudioOrchestrationService (above) is the older evidence-recording
@@ -106,9 +111,7 @@ async function main() {
     doorHandler.handle(payload);
   });
 
-  mqttClient.subscribeBinary(MqttTopics.VIDEO_STREAM, (frame) => {
-    videoStreamService.onFrame(frame);
-  });
+  // Video ya NO llega por MQTT: ahora entra por TCP directo (VideoTcpReceiver).
 
   mqttClient.subscribe(MqttTopics.BELL_BUTTON, (payload) => {
     bellHandler.handle(payload);

@@ -26,7 +26,16 @@ export class VideoStreamService {
     return this.latestFrame;
   }
 
-  /** True if a frame arrived within the last `maxAgeMs` milliseconds. */
+  /** Timestamp (ms) of the latest frame — lets the MJPEG endpoint send only new frames. */
+  getLastFrameAt(): number {
+    return this.lastFrameAt;
+  }
+
+  /**
+   * True if a frame arrived within the last `maxAgeMs` milliseconds. 5s balances
+   * two needs: long enough that a brief stall during live audio doesn't hide the
+   * video, short enough that it turns off reasonably fast when the visitor leaves.
+   */
   isLive(maxAgeMs = 5000): boolean {
     return this.latestFrame !== null && (Date.now() - this.lastFrameAt) <= maxAgeMs;
   }

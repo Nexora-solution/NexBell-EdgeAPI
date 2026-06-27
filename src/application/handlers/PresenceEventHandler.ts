@@ -5,7 +5,7 @@ import type { CameraEvidenceService } from '../services/CameraEvidenceService';
 const PRESENCE_TIMEOUT_MS = 20_000;
 
 /** Grace period after a "clear" before actually stopping — absorbs brief presence flicker. */
-const CLEAR_GRACE_MS = 2_000;
+const CLEAR_GRACE_MS = 1_000;
 
 /**
  * Application Handler: Presence Event (HC-SR04)
