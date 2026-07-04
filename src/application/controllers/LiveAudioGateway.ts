@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import dgram from 'dgram';
 import type { MqttBrokerClient } from '../../infrastructure/mqtt/MqttBrokerClient';
+import type { CloudAudioRelay } from '../services/CloudAudioRelay';
 import { MqttTopics } from '../../domain/MqttTopics';
 
 // UDP ports for the live-voice media plane (must match the ESP32 firmware Config.h).
@@ -37,6 +38,7 @@ export class LiveAudioGateway {
   private readonly clients = new Set<WebSocket>();
   private readonly udp = dgram.createSocket('udp4');
   private micActive = false;
+  private cloudRelay?: CloudAudioRelay;
 
   // Learned from the ESP32's incoming mic packets — where to send portero audio.
   private esp32Address: string | null = null;
@@ -55,16 +57,26 @@ export class LiveAudioGateway {
     this._wireWebSocketServer();
   }
 
+  setCloudRelay(relay: CloudAudioRelay): void {
+    this.cloudRelay = relay;
+  }
+
   /** UDP socket: receives the ESP32 mic and learns where to send portero audio. */
   private _wireUdp(): void {
     this.udp.on('message', (frame: Buffer, rinfo) => {
       // Remember the ESP32's address so we can send the portero's voice back.
       this.esp32Address = rinfo.address;
 
+      // Also feed the cloud relay (if active)
+      if (this.cloudRelay) {
+        this.cloudRelay.setEsp32Address(rinfo.address);
+        this.cloudRelay.feedMicAudio(frame);
+      }
+
       this.visitorChunksInLastSecond++;
       this._logDiagnosticsIfDue();
 
-      if (this.clients.size === 0) return; // nobody listening — not an error
+      if (this.clients.size === 0) return; // nobody listening on local WS — not an error
 
       // Echo gate: if the portero just spoke, this mic audio is most likely the
       // ESP32 speaker echoing their voice back — drop it instead of looping it.

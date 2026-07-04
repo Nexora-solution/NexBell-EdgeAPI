@@ -18,10 +18,16 @@ import { LiveAudioGateway }          from './application/controllers/LiveAudioGa
 import { BellEventHandler }          from './application/handlers/BellEventHandler';
 import { VibrationAlarmEventHandler } from './application/handlers/VibrationAlarmEventHandler';
 import { MqttTopics }                from './domain/MqttTopics';
+import { CloudSignalRClient }        from './infrastructure/ws/CloudSignalRClient';
+import { CloudVideoRelay }           from './application/services/CloudVideoRelay';
+import { CloudAudioRelay }           from './application/services/CloudAudioRelay';
+import { IntercomButtonHandler }     from './application/handlers/IntercomButtonHandler';
 import os                            from 'os';
 
 const MQTT_BROKER_URL  = process.env.MQTT_BROKER_URL  ?? 'mqtt://localhost:1883';
 const BACKEND_BASE_URL = process.env.BACKEND_BASE_URL ?? 'http://localhost:8080';
+const CLOUD_HUB_URL    = process.env.CLOUD_HUB_URL    ?? 'ws://localhost:8080/ws/media';
+const DEVICE_ID        = process.env.DEVICE_ID        ?? 'nexbell-door-01';
 
 async function main() {
   console.log('[EdgeService] Starting NexBell Edge Service...');
@@ -95,13 +101,24 @@ async function main() {
   const videoTcpPort = Number(process.env.EDGE_VIDEO_PORT ?? 3103);
   new VideoTcpReceiver(videoStreamService, videoTcpPort).start();
 
+  // ── Cloud SignalR/WebSocket client ─────────────────────────────
+  const cloudClient = new CloudSignalRClient(CLOUD_HUB_URL, DEVICE_ID);
+  await cloudClient.connect();
+
+  const cloudVideoRelay = new CloudVideoRelay(videoStreamService, cloudClient, DEVICE_ID);
+  const cloudAudioRelay = new CloudAudioRelay(cloudClient, DEVICE_ID);
+  const intercomHandler = new IntercomButtonHandler(
+    httpClient, mqttClient, cameraService, cloudClient, cloudVideoRelay, cloudAudioRelay, DEVICE_ID
+  );
+
   // ── Live Audio Gateway (WebSocket <-> MQTT bridge) ────────────────
   // Note: AudioOrchestrationService (above) is the older evidence-recording
   // pipeline (Base64/JSON, fixed 5s window). The firmware no longer speaks
   // that protocol — audio/chunk now carries raw PCM binary — so this
   // service is currently unwired. The live conversation path below is
   // intentionally separate and replaces it for real-time use.
-  new LiveAudioGateway(mqttClient, httpServer);
+  const liveAudioGateway = new LiveAudioGateway(mqttClient, httpServer);
+  liveAudioGateway.setCloudRelay(cloudAudioRelay);
 
   mqttClient.subscribe(MqttTopics.PRESENCE, (payload) => {
     presenceHandler.handle(payload);
@@ -115,6 +132,14 @@ async function main() {
 
   mqttClient.subscribe(MqttTopics.BELL_BUTTON, (payload) => {
     bellHandler.handle(payload);
+  });
+
+  mqttClient.subscribe(MqttTopics.INTERCOM_RESIDENT, () => {
+    intercomHandler.handle('resident');
+  });
+
+  mqttClient.subscribe(MqttTopics.INTERCOM_DOORMAN, () => {
+    intercomHandler.handle('doorman');
   });
 
   mqttClient.subscribe(MqttTopics.VIBRATION_ALARM, (payload) => {

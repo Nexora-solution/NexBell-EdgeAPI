@@ -11,11 +11,22 @@ export class VideoStreamService {
   private latestFrame: Buffer | null = null;
   private lastFrameAt: number = 0;
   private frameCount = 0;
+  private readonly listeners: ((frame: Buffer) => void)[] = [];
+
+  /** Register a callback that fires every time a new frame arrives from the ESP32. */
+  addFrameListener(cb: (frame: Buffer) => void): void {
+    this.listeners.push(cb);
+  }
 
   onFrame(payload: Buffer): void {
     this.latestFrame = payload;
     this.lastFrameAt = Date.now();
     this.frameCount += 1;
+
+    // Notify all registered listeners (e.g. CloudVideoRelay)
+    for (const cb of this.listeners) {
+      try { cb(payload); } catch { /* listener errors must not break the pipeline */ }
+    }
 
     if (this.frameCount % 50 === 0) {
       console.log(`[VideoStream] Received ${this.frameCount} frames so far (latest: ${payload.length} bytes).`);

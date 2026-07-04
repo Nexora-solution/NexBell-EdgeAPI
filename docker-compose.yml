@@ -20,7 +20,7 @@ services:
       - MQTT_BROKER_URL=mqtt://mosquitto:1883
       - MQTT_USERNAME=nexbell-esp32
       - MQTT_PASSWORD=nexbell-mqtt-2026
-      - BACKEND_BASE_URL=http://host.docker.internal:8080
+      - BACKEND_BASE_URL=https://nexbell-webservices.onrender.com/
       - EDGE_SERVICE_PORT=3100
     extra_hosts:
       - "host.docker.internal:host-gateway"

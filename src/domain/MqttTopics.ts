@@ -41,4 +41,10 @@ export const MqttTopics = {
 
   /** Edge service publishes a visitId to trigger OV2640 photo capture */
   CAMERA_TRIGGER:  'nexbell/commands/capture',
+
+  /** Botón de intercomunicador — residente (GPIO 1) → App Móvil */
+  INTERCOM_RESIDENT: 'nexbell/intercom/resident',
+
+  /** Botón de intercomunicador — portero (GPIO 14) → App Web */
+  INTERCOM_DOORMAN:  'nexbell/intercom/doorman',
 } as const;
