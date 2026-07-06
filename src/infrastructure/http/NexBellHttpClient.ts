@@ -23,10 +23,22 @@ export class NexBellHttpClient {
     console.log('[HTTP] Presence event reported to backend.');
   }
 
-  /** POST /api/security/alarms/tampering — report MC38 door alarm event */
-  async reportTampering(): Promise<void> {
-    await this.http.post('/api/security/alarms/tampering');
-    console.log('[HTTP] Tampering alarm reported to backend.');
+  /** POST /api/security/alarms/tampering — report tampering alarm event */
+  async reportTampering(sensorType: 'MC38_MAGNETIC' | 'SW420_VIBRATION'): Promise<void> {
+    await this.http.post('/api/security/alarms/tampering', { sensorType });
+    console.log(`[HTTP] Tampering alarm reported to backend for sensor: ${sensorType}.`);
+  }
+
+  /** POST /api/security/iot/door-state — report MC38 physical door state (OPEN/CLOSED) */
+  async reportDoorState(state: 'OPEN' | 'CLOSED'): Promise<void> {
+    await this.http.post('/api/security/iot/door-state', { state });
+    console.log(`[HTTP] Door state reported to backend: ${state}.`);
+  }
+
+  /** POST /api/security/face/event — forward an ESP32 face-recognition event (raw JSON) */
+  async reportFaceEvent(event: unknown): Promise<void> {
+    await this.http.post('/api/security/face/event', event);
+    console.log('[HTTP] Face event forwarded to backend.');
   }
 
   /**
@@ -40,6 +52,21 @@ export class NexBellHttpClient {
     });
     console.log(`[HTTP] Audio evidence attached for visitRequestId=${visitRequestId}`);
   }
+
+
+
+  /**
+   * POST /api/intercom/visit-requests/{id}/evidence
+   * Attaches the photo URL captured by the OV2640 camera.
+   */
+  async attachPhotoEvidence(visitRequestId: number, photoUrl: string): Promise<void> {
+    await this.http.post(`/api/intercom/visit-requests/${visitRequestId}/evidence`, {
+      photoUrl,
+      audioUrl: null,
+    });
+    console.log(`[HTTP] Photo evidence attached for visitRequestId=${visitRequestId}`);
+  }
+
 
   /**
    * POST /api/intercom/visit-requests — create a new visit request triggered

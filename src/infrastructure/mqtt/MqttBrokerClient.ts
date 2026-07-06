@@ -2,6 +2,7 @@ import * as mqtt from 'mqtt';
 import type { MqttClient } from 'mqtt';
 
 type MessageHandler = (payload: string) => void;
+type BinaryMessageHandler = (payload: Buffer) => void;
 
 /**
  * Infrastructure: MQTT Broker Client
@@ -13,6 +14,7 @@ type MessageHandler = (payload: string) => void;
 export class MqttBrokerClient {
   private client!: MqttClient;
   private readonly subscriptions = new Map<string, MessageHandler>();
+  private readonly binarySubscriptions = new Map<string, BinaryMessageHandler>();
 
   constructor(private readonly brokerUrl: string) {}
 
@@ -21,7 +23,12 @@ export class MqttBrokerClient {
       const clientId = process.env.MQTT_CLIENT_ID ?? `nexbell-edge-${Date.now()}`;
       console.log(`[MQTT] Connecting to ${this.brokerUrl} as ${clientId} ...`);
 
-      this.client = mqtt.connect(this.brokerUrl, { clientId, clean: true });
+      this.client = mqtt.connect(this.brokerUrl, {
+        clientId,
+        clean: true,
+        username: process.env.MQTT_USERNAME,
+        password: process.env.MQTT_PASSWORD,
+      });
 
       this.client.on('connect', () => {
         console.log('[MQTT] Connected to broker.');
@@ -34,10 +41,15 @@ export class MqttBrokerClient {
       });
 
       this.client.on('message', (topic: string, messageBuffer: Buffer) => {
-        const payload = messageBuffer.toString();
+        const binaryHandler = this.binarySubscriptions.get(topic);
+        if (binaryHandler) {
+          binaryHandler(messageBuffer);
+          return;
+        }
+
         const handler = this.subscriptions.get(topic);
         if (handler) {
-          handler(payload);
+          handler(messageBuffer.toString());
         } else {
           console.warn(`[MQTT] No handler registered for topic: ${topic}`);
         }
@@ -59,10 +71,29 @@ export class MqttBrokerClient {
     });
   }
 
+  /** Like subscribe(), but delivers the raw Buffer untouched (for binary payloads like video frames). */
+  subscribeBinary(topic: string, handler: BinaryMessageHandler): void {
+    this.client.subscribe(topic, (err) => {
+      if (err) {
+        console.error(`[MQTT] Failed to subscribe to ${topic}:`, err.message);
+      } else {
+        console.log(`[MQTT] Subscribed (binary): ${topic}`);
+        this.binarySubscriptions.set(topic, handler);
+      }
+    });
+  }
+
   publish(topic: string, payload: string): void {
     this.client.publish(topic, payload, (err) => {
       if (err) console.error(`[MQTT] Publish error on ${topic}:`, err.message);
       else console.log(`[MQTT] Published to ${topic}: ${payload}`);
+    });
+  }
+
+  /** Like publish(), but sends raw binary bytes untouched (for audio/video payloads). */
+  publishBytes(topic: string, payload: Buffer): void {
+    this.client.publish(topic, payload, (err) => {
+      if (err) console.error(`[MQTT] Binary publish error on ${topic}:`, err.message);
     });
   }
 }
